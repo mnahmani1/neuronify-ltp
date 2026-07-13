@@ -76,15 +76,21 @@ hdiutil create -volname "Neuronify LTP" -srcfolder Neuronify.app \
   -ov -format UDZO Neuronify-LTP.dmg
 ```
 
-## Opening the pre-built macOS app (recipients)
+## Running the pre-built apps (recipients — no building required)
 
-The `.dmg` is signed *ad-hoc*, not with a paid Apple Developer ID, so on first
-launch macOS shows an "unverified developer" warning. To open it:
+Pre-built, self-contained downloads are on the [Releases page](https://github.com/mnahmani1/neuronify-ltp/releases).
 
-1. Drag **Neuronify.app** to **Applications**.
-2. **Right-click** (Control-click) Neuronify → **Open** → **Open** in the dialog.
+**Windows (10/11, 64-bit):** download `Neuronify-LTP-Windows-x64.zip`, unzip anywhere, run
+**Neuronify.exe**. If a blue "Windows protected your PC" box appears, click **More info →
+Run anyway** (one-time; the app is unsigned, not malicious). No Qt or installer needed.
 
-Only needed once. Requires an Apple Silicon Mac, macOS 11+.
+**macOS (Apple Silicon, macOS 11+):** download the `.dmg` (signed ad-hoc, not with a paid
+Apple Developer ID), drag **Neuronify.app** to **Applications**, then **right-click →
+Open → Open** the first time. Only needed once.
+
+The Windows build is produced automatically by GitHub Actions
+(`.github/workflows/build-windows.yml`) — every push to `main` rebuilds it and refreshes
+the release asset; it can also be run manually from the repo's **Actions** tab.
 
 ---
 
