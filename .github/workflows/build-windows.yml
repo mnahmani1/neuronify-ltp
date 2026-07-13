@@ -1,0 +1,67 @@
+name: Build Windows
+
+# Builds a self-contained Windows x64 app (no Qt install needed by the user),
+# zips it, and attaches it to the v1.0-ltp release. Runs in GitHub's cloud —
+# no Windows machine required.
+
+on:
+  workflow_dispatch:        # lets you run it manually from the Actions tab
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - '**.docx'
+
+permissions:
+  contents: write           # needed to upload the zip to the release
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC build environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Qt 5.15
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          modules: qtcharts
+
+      - name: Configure (qmake)
+        run: qmake neuronify.pro CONFIG+=release
+        shell: cmd
+
+      - name: Build (nmake)
+        run: nmake
+        shell: cmd
+
+      - name: Bundle Qt runtime + QML (windeployqt)
+        shell: cmd
+        run: |
+          mkdir deploy
+          copy release\neuronify.exe deploy\Neuronify.exe
+          windeployqt --release --qmldir qml deploy\Neuronify.exe
+
+      - name: Package zip
+        shell: pwsh
+        run: Compress-Archive -Path deploy\* -DestinationPath Neuronify-LTP-Windows-x64.zip -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neuronify-LTP-Windows-x64
+          path: Neuronify-LTP-Windows-x64.zip
+
+      - name: Attach to v1.0-ltp release
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload v1.0-ltp Neuronify-LTP-Windows-x64.zip --clobber --repo "$GITHUB_REPOSITORY"

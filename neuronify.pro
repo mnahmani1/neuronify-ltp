@@ -141,8 +141,14 @@ macx {
 }
 
 win32 {
-    CONFIG += conan_basic_setup
-    include(conanbuildinfo.pri)
+    # Conan (OpenSSL for the optional HTTPS download feature) is only used if a
+    # conanbuildinfo.pri has been generated. Guard the include so the app builds
+    # on Windows without Conan set up (the app runs fine; only online downloads
+    # would be unavailable).
+    exists(conanbuildinfo.pri) {
+        CONFIG += conan_basic_setup
+        include(conanbuildinfo.pri)
+    }
 }
 
 WINRT_MANIFEST.name = Neuronify
