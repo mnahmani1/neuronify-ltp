@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<RCC>
+    <qresource prefix="/QmlPreviewer">
+        <file alias="QmlPreviewerDialog.qml">libs/QmlPreviewer/QmlPreviewerDialog.qml</file>
+        <file alias="ResizeHandle.qml">libs/QmlPreviewer/ResizeHandle.qml</file>
+        <file alias="ResizeRectangle.qml">libs/QmlPreviewer/ResizeRectangle.qml</file>
+        <file alias="images/ic_folder_black_24px.svg">libs/QmlPreviewer/images/ic_folder_black_24px.svg</file>
+        <file alias="images/ic_insert_drive_file_black_24px.svg">libs/QmlPreviewer/images/ic_insert_drive_file_black_24px.svg</file>
+    </qresource>
+</RCC>

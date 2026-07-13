@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<RCC>
+    <qresource prefix="/">
+        <file alias="sounds/thump.wav">sounds/thump.wav</file>
+        <file alias="sounds/drip.ogg">sounds/drip.ogg</file>
+        <file alias="sounds/glass.ogg">sounds/glass.ogg</file>
+        <file alias="sounds/sonar.ogg">sounds/sonar.ogg</file>
+        <file alias="sounds/drip.wav">sounds/drip.wav</file>
+        <file alias="sounds/glass.wav">sounds/glass.wav</file>
+        <file alias="sounds/sonar.wav">sounds/sonar.wav</file>
+        <file alias="qml/menus/filemenu/FileMenu.qml">qml/menus/filemenu/FileMenu.qml</file>
+        <file alias="qml/backend/Firebase.qml">qml/backend/Firebase.qml</file>
+    </qresource>
+</RCC>

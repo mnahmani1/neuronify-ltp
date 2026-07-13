@@ -1,0 +1,4 @@
+LeakyNeuron {
+    inhibitory: true
+}
+

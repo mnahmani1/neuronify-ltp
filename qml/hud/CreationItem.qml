@@ -1,0 +1,140 @@
+import QtQuick 2.0
+import QtQuick.Controls 2.0
+import QtGraphicalEffects 1.0
+import "qrc:/qml/style"
+
+Item {
+    id: root
+    property string objectName: "CreationItem"
+
+    signal dropped(var fileUrl, var properties, var controlParent)
+
+//    default property alias subChildren: creationControl.children
+
+    property string name: "test long text with long name"
+    property string description: ""
+    property url source: ""
+    property url imageSource: "qrc:/images/neurons/leaky.png"
+    property Item parentWhenDragging
+    property bool dragActive: false
+
+    width: 64
+    height: column.height
+
+    Column {
+        id: column
+        anchors {
+            left: parent.left
+            right: parent.right
+        }
+        spacing: 8
+
+        MouseArea {
+            id: mouseArea
+
+            anchors.horizontalCenter: parent.horizontalCenter
+
+            width: parent.width * 0.6
+            height: width
+
+            // No drag.target — manual tracking avoids Qt cancelling the drag
+            // before onReleased fires (same fix applied to Connector.qml).
+            property bool dragInProgress: false
+
+            onClicked: {
+                ToolTip.show("Drag and drop onto workspace", 2400)
+            }
+
+            onPressed: {
+                dragInProgress = true
+                var pos = mouseArea.mapToItem(root.parentWhenDragging, mouse.x, mouse.y)
+                creationControl.x = pos.x - creationControl.width / 2
+                creationControl.y = pos.y - creationControl.height / 2
+                creationControl.Drag.active = true
+            }
+
+            onPositionChanged: {
+                if (dragInProgress) {
+                    var pos = mouseArea.mapToItem(root.parentWhenDragging, mouse.x, mouse.y)
+                    creationControl.x = pos.x - creationControl.width / 2
+                    creationControl.y = pos.y - creationControl.height / 2
+                }
+            }
+
+            onReleased: {
+                creationControl.Drag.drop()
+                creationControl.Drag.active = false
+                dragInProgress = false
+            }
+
+            Item {
+                id: creationControl
+
+                property alias creationItem: root
+
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+
+                width: mouseArea.width
+                height: width
+
+                Drag.hotSpot.x: 32
+                Drag.hotSpot.y: 32
+                Drag.keys: ["lol"]
+
+                states: State {
+                    when: mouseArea.dragInProgress
+                    ParentChange { target: creationControl; parent: root.parentWhenDragging }
+                    AnchorChanges { target: creationControl; anchors.horizontalCenter: undefined; anchors.verticalCenter: undefined }
+                    PropertyChanges {
+                        target: root
+                        dragActive: true
+                    }
+                }
+
+                Image {
+                    id: image
+                    visible: false
+                    anchors.fill: parent
+                    source: imageSource
+                    fillMode: Image.PreserveAspectFit
+                    antialiasing: true
+                    smooth: true
+                    asynchronous: true
+                }
+
+                DropShadow {
+                    anchors.fill: image
+                    source: image
+                    samples: 17
+                    radius: 8
+                    horizontalOffset: 1
+                    verticalOffset: 4
+                    color: Qt.hsla(0.0, 0.0, 0.0, 0.2)
+                    smooth: true
+                    antialiasing: true
+                }
+            }
+
+        }
+
+        Text {
+            id: text
+            anchors {
+                left: parent.left
+                right: parent.right
+            }
+            color: Style.mainDesktop.text.color
+            font.pixelSize: 12
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            text: root.name
+        }
+
+        Item {
+            width: 1
+            height: 8
+        }
+    }
+}
+
