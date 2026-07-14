@@ -436,7 +436,10 @@ Rectangle {
             id: workspaceMouseArea
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-            hoverEnabled: true
+            // Hover must NOT be enabled: with it on, onPositionChanged fires on plain
+            // cursor movement and pans the workspace, making everything follow the mouse.
+            // Panning happens only during an actual click-drag (see onPositionChanged).
+            hoverEnabled: false
 
             property point lastPanPos
             property bool panActive: false
@@ -472,6 +475,11 @@ Rectangle {
             }
 
             onPositionChanged: {
+                // Only pan while a mouse button is actually held down (click-drag).
+                // Without this guard, moving the cursor alone would drag the whole
+                // workspace around. Zoom (onWheel) is unaffected.
+                if (!pressed) return
+
                 var dx = mouse.x - lastPanPos.x
                 var dy = mouse.y - lastPanPos.y
                 if (!panActive && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
