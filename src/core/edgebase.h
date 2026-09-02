@@ -83,7 +83,7 @@ private:
     double m_baselineWeight = 1.0;
     double m_maxWeight = 3.0;
     double m_learningRate = 0.1;
-    double m_detectionWindow = 100.0;
+    double m_detectionWindow = 1.0;   // seconds; matches the 0.1-5.0 s UI range
     int m_spikeThreshold = 3;
     double m_forgettingRate = 0.2; // 1/s; decay time constant tau = 1/rate (0.2 -> tau = 5 s)
 

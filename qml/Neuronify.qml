@@ -436,6 +436,7 @@ Rectangle {
     property real recordElapsed: 0.0
     property real recordNextSample: 0.0
     property var spikeHandlers: []
+    property var recordMetadata: null
 
     function sanitizeName(text) {
         return String(text).replace(/[",\n\r]/g, " ").replace(/\s+/g, "_").trim()
@@ -502,6 +503,8 @@ Rectangle {
             handlers.push({ node: col.node, fn: fn })
         }
         spikeHandlers = handlers
+        // Snapshot the parameters this run was recorded under, for the sidecar.
+        recordMetadata = buildMetadata()
         recording = true
     }
 
@@ -570,8 +573,147 @@ Rectangle {
         return lines.join("\n") + "\n"
     }
 
+    // Full parameter snapshot of the circuit, so a CSV stays attributable to
+    // the conditions that produced it. Values are converted to the same units
+    // the UI and the CSV use (mV, ms, nA).
+    // Flattens an object's savedProperties PropertyGroups into a plain map.
+    // Using the groups rather than reading properties directly picks up values
+    // that live on child objects (e.g. a neuron's resistance is on its
+    // LeakCurrent, not on the engine) and covers every node/edge type.
+    function dumpSavedProperties(obj) {
+        var out = {}
+        if(!obj || !obj.savedProperties) return out
+        for(var i in obj.savedProperties) {
+            var props = obj.savedProperties[i].dump()
+            for(var k in props) {
+                var v = props[k]
+                if(typeof v === "object" && v !== null) continue   // skip nested objects
+                out[k] = v
+            }
+        }
+        return out
+    }
+
+    function buildMetadata() {
+        function mv(v)  { return (v === undefined || v === null) ? null : v * 1000.0 }
+        function ms(v)  { return (v === undefined || v === null) ? null : v * 1000.0 }
+        function na(v)  { return (v === undefined || v === null) ? null : v * 1e9 }
+        function num(v) { return (v === undefined) ? null : v }
+
+        var meta = {
+            neuronify_version: (typeof Version !== "undefined") ? Version.identifier : "unknown",
+            recorded_at: new Date().toISOString(),
+            sampling: {
+                interval_ms: recordInterval * 1000.0,
+                playback_speed: playbackSpeed
+            },
+            units_note: "*_si values are raw SI base units (V, s, F, Ohm, A); named fields are converted to mV / ms / nA.",
+            voltmeters: [],
+            neurons: [],
+            synapses: []
+        }
+
+        var vmIndex = 0
+        for(var i = 0; i < graphEngine.nodes.length; i++) {
+            var node = graphEngine.nodes[i]
+            if(!node || node.objectName !== "voltmeter" || !node.connectionPlots) continue
+            vmIndex += 1
+            meta.voltmeters.push({
+                index: vmIndex,
+                time_span_ms: ms(node.timeRange),
+                v_min_mV: num(node.minimumValue),
+                v_max_mV: num(node.maximumValue),
+                voltage_divisions: num(node.gridDivisionsY),
+                time_divisions: num(node.gridDivisionsX)
+            })
+            for(var j = 0; j < node.connectionPlots.length; j++) {
+                var n = node.connectionPlots[j].connection.itemB
+                if(!n) continue
+                var np = dumpSavedProperties(n.engine)
+                meta.neurons.push({
+                    column_prefix: "V" + vmIndex + "_" + sanitizeName(nodeLabelOrIndex(n, "n")),
+                    label: n.label ? n.label : "",
+                    type: n.filename ? n.filename : n.objectName,
+                    inhibitory: (n.inhibitory === true),
+                    threshold_mV: mv(np.threshold),
+                    resting_potential_mV: mv(np.restingPotential),
+                    initial_potential_mV: mv(np.initialPotential),
+                    resistance_ohm: num(np.resistance),
+                    capacitance_F: num(np.capacitance),
+                    refractory_period_ms: ms(np.refractoryPeriod),
+                    parameters_si: np
+                })
+            }
+        }
+
+        var sIndex = 0
+        for(var e = 0; e < graphEngine.edges.length; e++) {
+            var edge = graphEngine.edges[e]
+            if(!edge) continue
+            if(edge.objectName !== "CurrentSynapse"
+                    && edge.objectName !== "ImmediateFireSynapse") continue
+            sIndex += 1
+            var ep = dumpSavedProperties(edge.engine)
+            meta.synapses.push({
+                column: "S" + sIndex + "_" + sanitizeName(nodeLabelOrIndex(edge.itemA, "n"))
+                        + "_to_" + sanitizeName(nodeLabelOrIndex(edge.itemB, "n")) + "_weight",
+                from: nodeLabelOrIndex(edge.itemA, "n"),
+                to: nodeLabelOrIndex(edge.itemB, "n"),
+                type: edge.objectName,
+                maximum_current_nA: na(ep.maximumCurrent),
+                delay_ms: ms(ep.delay),
+                time_constant_ms: ms(ep.tau),
+                ltp: {
+                    enabled: (edge.ltpEnabled === true),
+                    baseline_weight: num(edge.baselineWeight),
+                    max_weight: num(edge.maxWeight),
+                    learning_rate: num(edge.learningRate),
+                    spike_window_s: num(edge.detectionWindow),
+                    spike_threshold: num(edge.spikeThreshold),
+                    forgetting_rate_per_s: num(edge.forgettingRate)
+                },
+                weight_at_start: num(edge.synapticWeight),
+                parameters_si: ep
+            })
+        }
+        return meta
+    }
+
+    function metadataJson() {
+        var meta = recordMetadata
+                 ? JSON.parse(JSON.stringify(recordMetadata))
+                 : buildMetadata()
+        meta.exported_at = new Date().toISOString()
+        meta.sampling.samples = recordRows.length
+        meta.sampling.duration_ms = recordRows.length > 0
+                ? recordRows[recordRows.length - 1][0] : 0
+
+        meta.columns = [{ name: "time_ms", kind: "time" }]
+        for(var c = 0; c < recordColumns.length; c++) {
+            meta.columns.push({ name: recordColumns[c].name, kind: recordColumns[c].type })
+        }
+
+        // Final weights let a reader see how far each synapse moved during the run.
+        for(var k = 0; k < recordColumns.length; k++) {
+            var col = recordColumns[k]
+            if(col.type !== "weight" || !col.edge) continue
+            for(var m = 0; m < meta.synapses.length; m++) {
+                if(meta.synapses[m].column === col.name) {
+                    meta.synapses[m].weight_at_export = col.edge.synapticWeight
+                    break
+                }
+            }
+        }
+        return JSON.stringify(meta, null, 2) + "\n"
+    }
+
+    // Writes the CSV plus a "<name>.metadata.json" sidecar recording the
+    // parameters the data was produced under.
     function exportSessionCsv(fileUrl) {
-        return FileIO.writeSynchronously(fileUrl, sessionCsvText())
+        var ok = FileIO.writeSynchronously(fileUrl, sessionCsvText())
+        var metaUrl = String(fileUrl).replace(/\.csv$/i, "") + ".metadata.json"
+        FileIO.writeSynchronously(metaUrl, metadataJson())
+        return ok
     }
 
     /* -----------------------------

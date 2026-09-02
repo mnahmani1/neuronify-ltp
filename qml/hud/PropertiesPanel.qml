@@ -131,7 +131,7 @@ Item {
                         if(s.recordedCount > 0)
                             return "Stopped — " + s.recordedCount + " samples across "
                                    + s.recordColumns.length + " channels."
-                        return "Captures all voltmeters and synapse weights to one CSV."
+                        return "Captures all voltmeters and synapse weights to one CSV, plus a .metadata.json sidecar of the parameters used."
                     }
                 }
 
