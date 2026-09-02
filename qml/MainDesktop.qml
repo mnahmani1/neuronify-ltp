@@ -380,7 +380,9 @@ Item {
                     }
 
                     wrapMode: Label.WrapAtWordBoundaryOrAnywhere
-                    text: ""
+                    // With nothing selected the panel shows the Simulation page
+                    // (session recording, reset, snapping), so label it as such.
+                    text: "Simulation"
                     font.pixelSize: 12
                     horizontalAlignment: Qt.AlignHCenter
                     color: Style.mainDesktop.text.color
@@ -412,14 +414,8 @@ Item {
                         propertiesPanel.revealed = !propertiesPanel.revealed
                     }
 
-                    states: State {
-                        when: neuronify.activeObject ? false : true
-                        PropertyChanges {
-                            target: propertiesButton
-                            opacity: 0.0
-                            enabled: false
-                        }
-                    }
+                    // Stays available with nothing selected: that is the only way
+                    // to reach the Simulation page (session recording lives there).
                 }
             }
         }
@@ -512,6 +508,7 @@ Item {
             bottom: parent.bottom
         }
         activeObject: neuronify.activeObject
+        simulator: neuronify
 
         states: [
             State {

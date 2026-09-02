@@ -316,6 +316,12 @@ Rectangle {
        ----------------------------- */
 
     function deleteEverything() {
+        // A session recording holds references to the nodes/edges about to be
+        // destroyed (and its column set would no longer match the workspace),
+        // so end it before tearing the graph down.
+        if(recording) stopRecording()
+        clearRecording()
+
         // Snapshot to plain JS arrays first — the C++ QmlListProperty changes
         // length as we remove items, which would crash index-based iteration.
         // Use removeEdge/removeNode (not destroy): they call deleteLater() AND
@@ -408,6 +414,167 @@ Rectangle {
     }
 
     /* -----------------------------
+       Session recording (all meters + synapse weights -> one CSV)
+       -----------------------------
+
+       Samples on the simulation timer, so every column shares one timebase
+       regardless of each voltmeter's display settings. Captures, per sample:
+         - membrane voltage and a spike flag for every neuron watched by any
+           voltmeter (spikes matter because integrate-and-fire resets at
+           threshold, so the voltage column alone never shows one), and
+         - the synaptic weight of every synapse, which is what makes an LTP
+           learning curve quantifiable.
+    */
+
+    property bool recording: false
+    property bool recordingFull: false
+    property real recordInterval: 0.001      // simulation seconds between samples
+    property int recordedCount: 0
+    property int maximumSamples: 500000
+    property var recordRows: []
+    property var recordColumns: []
+    property real recordElapsed: 0.0
+    property real recordNextSample: 0.0
+    property var spikeHandlers: []
+
+    function sanitizeName(text) {
+        return String(text).replace(/[",\n\r]/g, " ").replace(/\s+/g, "_").trim()
+    }
+
+    function nodeLabelOrIndex(node, fallbackPrefix) {
+        if(!node) return "none"
+        if(node.label && node.label.length > 0) return node.label
+        var idx = graphEngine.nodeIndex(node)
+        return fallbackPrefix + (idx >= 0 ? idx : "?")
+    }
+
+    // Snapshot of what to record. Taken once when recording starts so the
+    // column set cannot change mid-run (adding a neuron mid-recording would
+    // otherwise misalign the file).
+    function buildRecordColumns() {
+        var cols = []
+        var vmIndex = 0
+        for(var i = 0; i < graphEngine.nodes.length; i++) {
+            var node = graphEngine.nodes[i]
+            if(!node || node.objectName !== "voltmeter" || !node.connectionPlots) continue
+            vmIndex += 1
+            for(var j = 0; j < node.connectionPlots.length; j++) {
+                var neuron = node.connectionPlots[j].connection.itemB
+                if(!neuron) continue
+                var base = "V" + vmIndex + "_" + sanitizeName(nodeLabelOrIndex(neuron, "n"))
+                cols.push({ type: "voltage", name: base + "_mV", node: neuron })
+                cols.push({ type: "spike", name: base + "_spike", node: neuron, spiked: false })
+            }
+        }
+        var sIndex = 0
+        for(var e = 0; e < graphEngine.edges.length; e++) {
+            var edge = graphEngine.edges[e]
+            if(!edge) continue
+            if(edge.objectName !== "CurrentSynapse"
+                    && edge.objectName !== "ImmediateFireSynapse") continue
+            sIndex += 1
+            var nameA = sanitizeName(nodeLabelOrIndex(edge.itemA, "n"))
+            var nameB = sanitizeName(nodeLabelOrIndex(edge.itemB, "n"))
+            cols.push({ type: "weight",
+                        name: "S" + sIndex + "_" + nameA + "_to_" + nameB + "_weight",
+                        edge: edge })
+        }
+        return cols
+    }
+
+    function startRecording() {
+        stopRecording()
+        recordColumns = buildRecordColumns()
+        recordRows = []
+        recordedCount = 0
+        recordingFull = false
+        recordElapsed = 0.0
+        recordNextSample = 0.0
+
+        var handlers = []
+        for(var c = 0; c < recordColumns.length; c++) {
+            var col = recordColumns[c]
+            if(col.type !== "spike" || !col.node) continue
+            var fn = (function(column) {
+                return function() { column.spiked = true }
+            })(col)
+            col.node.fired.connect(fn)
+            handlers.push({ node: col.node, fn: fn })
+        }
+        spikeHandlers = handlers
+        recording = true
+    }
+
+    function stopRecording() {
+        for(var h = 0; h < spikeHandlers.length; h++) {
+            try { spikeHandlers[h].node.fired.disconnect(spikeHandlers[h].fn) } catch(e) {}
+        }
+        spikeHandlers = []
+        recording = false
+        recordedCount = recordRows.length
+    }
+
+    function clearRecording() {
+        recordRows = []
+        recordedCount = 0
+        recordingFull = false
+        recordElapsed = 0.0
+        recordNextSample = 0.0
+    }
+
+    function sampleRecording(dt) {
+        if(!recording || recordingFull) return
+        recordElapsed += dt
+        if(recordElapsed < recordNextSample) return
+        recordNextSample = recordElapsed + recordInterval
+
+        var row = [recordElapsed * 1000.0]
+        for(var c = 0; c < recordColumns.length; c++) {
+            var col = recordColumns[c]
+            if(col.type === "voltage") {
+                row.push((col.node && col.node.voltage !== undefined)
+                         ? col.node.voltage * 1000.0 : NaN)
+            } else if(col.type === "spike") {
+                row.push(col.spiked ? 1 : 0)
+                col.spiked = false
+            } else {
+                row.push(col.edge ? col.edge.synapticWeight : NaN)
+            }
+        }
+        recordRows.push(row)
+        // Throttled counter: updating per sample would repaint the panel
+        // thousands of times a second.
+        if(recordRows.length % 100 === 0) recordedCount = recordRows.length
+        if(recordRows.length >= maximumSamples) {
+            recordingFull = true
+            stopRecording()
+        }
+    }
+
+    function sessionCsvText() {
+        var header = ["time_ms"]
+        for(var c = 0; c < recordColumns.length; c++) header.push(recordColumns[c].name)
+        var lines = [header.join(",")]
+        for(var r = 0; r < recordRows.length; r++) {
+            var row = recordRows[r]
+            var cells = []
+            for(var k = 0; k < row.length; k++) {
+                var v = row[k]
+                if(v === null || v === undefined || isNaN(v)) { cells.push(""); continue }
+                if(k === 0) { cells.push(v.toFixed(3)); continue }
+                cells.push(recordColumns[k - 1].type === "spike"
+                           ? String(v) : v.toFixed(4))
+            }
+            lines.push(cells.join(","))
+        }
+        return lines.join("\n") + "\n"
+    }
+
+    function exportSessionCsv(fileUrl) {
+        return FileIO.writeSynchronously(fileUrl, sessionCsvText())
+    }
+
+    /* -----------------------------
        Graph Engine & Workspace
        ----------------------------- */
 
@@ -418,7 +585,13 @@ Rectangle {
         interval: 1
         repeat: true
         running: root.running
-        onTriggered: graphEngine.step(0.001 * root.playbackSpeed)
+        onTriggered: {
+            var dt = 0.001 * root.playbackSpeed
+            graphEngine.step(dt)
+            // Sample after stepping so recorded values match the state the
+            // meters are showing for this tick.
+            sampleRecording(dt)
+        }
     }
 
 
