@@ -65,6 +65,79 @@ Node {
     property real realTime: 0.0
     property int numberOfEdges: 0
 
+    // ── User-definable axes / gradations ───────────────────────────────
+    // timeRange (above) is the width of the x-axis window, in seconds.
+    // The grid divisions determine how many gradation lines/labels are drawn.
+    property bool showGrid: true
+    property int gridDivisionsX: 4
+    property int gridDivisionsY: 4
+
+    // ── Data recording for CSV export ──────────────────────────────────
+    // The plotted LineSeries only retains the visible window (ChartScroller
+    // discards older points), so recording keeps its own buffer of samples.
+    // Rows are [timeMs, v1, v2, ...] with one column per connected neuron.
+    property bool recording: false
+    property bool recordingFull: false
+    property int recordedCount: 0
+    property int maximumSamples: 200000
+    property var recordBuffer: []
+
+    // The counter is only updated every 100 samples while running (updating it
+    // per-sample would repaint the panel thousands of times a second), so make
+    // it exact whenever recording starts or stops.
+    onRecordingChanged: recordedCount = recordBuffer.length
+
+    function clearRecording() {
+        recordBuffer = []
+        recordedCount = 0
+        recordingFull = false
+    }
+
+    // Column name for a connected neuron: its label if set, else Neuron_N.
+    function seriesName(index) {
+        var cp = connectionPlots[index]
+        var n = cp ? cp.connection.itemB : null
+        var raw = (n && n.label && n.label.length > 0) ? n.label : ("Neuron_" + (index + 1))
+        return String(raw).replace(/[",\n\r]/g, " ").trim()
+    }
+
+    // Builds a plain CSV: header row + one row per sample.
+    // Wide format (one column per neuron) so traces can be compared directly
+    // in Excel / R / pandas without reshaping.
+    // Columns are [time_ms, <name>_mV, <name>_spike, ...] — one voltage and one
+    // spike column per neuron. spike is 1 on the sample where the neuron fired,
+    // 0 otherwise, so spike counts / ISIs / firing rates can be computed directly.
+    function csvText() {
+        var header = ["time_ms"]
+        for(var c = 0; c < connectionPlots.length; c++) {
+            header.push(seriesName(c) + "_mV")
+            header.push(seriesName(c) + "_spike")
+        }
+        var lines = [header.join(",")]
+        for(var r = 0; r < recordBuffer.length; r++) {
+            var row = recordBuffer[r]
+            var cells = []
+            for(var k = 0; k < row.length; k++) {
+                var v = row[k]
+                if(v === null || v === undefined || isNaN(v)) {
+                    cells.push("")
+                } else if(k === 0) {
+                    cells.push(v.toFixed(3))          // time_ms
+                } else if((k - 1) % 2 === 1) {
+                    cells.push(String(v))             // spike flag: 0 / 1
+                } else {
+                    cells.push(v.toFixed(4))          // voltage_mV
+                }
+            }
+            lines.push(cells.join(","))
+        }
+        return lines.join("\n") + "\n"
+    }
+
+    function exportCsv(fileUrl) {
+        return FileIO.writeSynchronously(fileUrl, csvText())
+    }
+
     controls: Component {
         MeterControls {
             meter: voltmeterRoot
@@ -73,6 +146,7 @@ Node {
             sliderMaximum: 250
             unit: "mV"
             meterType: "Voltmeter"
+            dataToolsEnabled: true   // axis scaling + CSV recording/export
         }
     }
     width: 320
@@ -90,6 +164,9 @@ Node {
             if((realTime - lastUpdateTime) > timeRange / maximumPointCount) {
                 time = realTime
                 lastUpdateTime = realTime
+                // Collect (and clear) the fire flags alongside the plotted sample,
+                // so a spike is attributed to exactly one sample.
+                var spikes = []
                 for(var i in voltmeterRoot.connectionPlots) {
                     var connectionPlot = voltmeterRoot.connectionPlots[i]
                     var plot = connectionPlot.plot
@@ -98,6 +175,30 @@ Node {
                         if(neuron.voltage) {
                             plot.addPoint(time * timeFactor, neuron.voltage * voltageFactor)
                         }
+                    }
+                    spikes.push(connectionPlot.spiked ? 1 : 0)
+                    connectionPlot.spiked = false
+                }
+
+                // Capture the same sample into the CSV recording buffer.
+                if(voltmeterRoot.recording && !voltmeterRoot.recordingFull) {
+                    var row = [time * timeFactor]
+                    for(var j = 0; j < voltmeterRoot.connectionPlots.length; j++) {
+                        var nb = voltmeterRoot.connectionPlots[j].connection.itemB
+                        row.push((nb && nb.voltage !== undefined)
+                                 ? nb.voltage * voltageFactor : NaN)
+                        row.push(spikes[j])
+                    }
+                    voltmeterRoot.recordBuffer.push(row)
+                    // Throttle the UI counter: updating it every sample would
+                    // repaint the properties panel thousands of times a second.
+                    if(voltmeterRoot.recordBuffer.length % 100 === 0) {
+                        voltmeterRoot.recordedCount = voltmeterRoot.recordBuffer.length
+                    }
+                    if(voltmeterRoot.recordBuffer.length >= voltmeterRoot.maximumSamples) {
+                        voltmeterRoot.recordedCount = voltmeterRoot.recordBuffer.length
+                        voltmeterRoot.recordingFull = true
+                        voltmeterRoot.recording = false
                     }
                 }
             }
@@ -110,6 +211,10 @@ Node {
         property alias height: voltmeterRoot.height
         property alias maximumValue: voltmeterRoot.maximumValue
         property alias minimumValue: voltmeterRoot.minimumValue
+        property alias timeRange: voltmeterRoot.timeRange
+        property alias showGrid: voltmeterRoot.showGrid
+        property alias gridDivisionsX: voltmeterRoot.gridDivisionsX
+        property alias gridDivisionsY: voltmeterRoot.gridDivisionsY
     }
 
 
@@ -144,7 +249,13 @@ Node {
             plot: plot,
             firePlot: firePlot,
             neuron: neuron,
+            // Set on each fire event, consumed and cleared by the next sample.
+            // This is what makes spikes recoverable from the CSV: in an
+            // integrate-and-fire model the membrane potential resets at
+            // threshold, so the voltage column alone never shows a spike.
+            spiked: false,
             neuronFired: function() {
+                connectionPlot.spiked = true
                 firePlot.addPoint(time * timeFactor - 1e-1, 1000e-3 * voltageFactor)
                 firePlot.addPoint(time * timeFactor, neuron.voltage * voltageFactor)
                 firePlot.addPoint(time * timeFactor + 1e-1, 1000e-3 * voltageFactor)
@@ -228,17 +339,16 @@ Node {
             width: 1
             height: 1
 
-            // Axis label V and t
+            // ── Axis titles ────────────────────────────────────────────
             Text{
                 id: ylabel
-                anchors{
-                    verticalCenter: chartView.verticalCenter
-                    left: chartView.left
-                    leftMargin: 20
-                }
+                // Rotated text pivots about its centre, so its horizontal
+                // extent is centred on x + width/2. Place that column at x≈11.
+                x: 11 - width / 2
+                anchors.verticalCenter: chartView.verticalCenter
                 rotation: 270
                 text: "V [mV]"
-                visible: chartItem.showAxisLabel && (vMin.y - vMax.y - vMax.height) > width ? true : false
+                visible: chartItem.showAxisLabel && chartView.plotArea.height > width
                 font.pixelSize: voltmeterRoot.fontSize
             }
 
@@ -247,61 +357,78 @@ Node {
                 anchors{
                     horizontalCenter: chartView.horizontalCenter
                     bottom: chartView.bottom
-                    bottomMargin: 10
+                    bottomMargin: 1
                 }
 
                 text: chartItem.showAxisLabel ? "t [ms]" : ""
                 font.pixelSize: voltmeterRoot.fontSize
             }
 
-            //Time axis min/max:
-            Text{
-                id: tMin
-                anchors{
-                    verticalCenter: xlabel.verticalCenter
-                    left: vMin.right
+            // ── Gradation grid ─────────────────────────────────────────
+            // Drawn as plain Rectangles positioned from chartView.plotArea
+            // rather than via QtCharts gridVisible/labelsVisible, which
+            // trigger the axis-label performance regression (QTBUG-59040).
+            // ChartView's background is transparent, so this shows through
+            // beneath the traces.
+            Item {
+                id: gridOverlay
+                anchors.fill: parent
+                visible: voltmeterRoot.showGrid
+
+                Repeater {   // horizontal lines → voltage gradations
+                    model: voltmeterRoot.gridDivisionsY + 1
+                    Rectangle {
+                        color: (index === 0 || index === voltmeterRoot.gridDivisionsY)
+                               ? "#b0bec5" : "#dde3ea"
+                        height: 1
+                        x: chartView.plotArea.x
+                        width: chartView.plotArea.width
+                        y: chartView.plotArea.y + chartView.plotArea.height
+                           * index / Math.max(1, voltmeterRoot.gridDivisionsY)
+                    }
                 }
 
-                text: voltmeterRoot.minimumTime.toFixed(0)
-                font.pixelSize: voltmeterRoot.fontSize
-                visible: showAxis
+                Repeater {   // vertical lines → time gradations
+                    model: voltmeterRoot.gridDivisionsX + 1
+                    Rectangle {
+                        color: (index === 0 || index === voltmeterRoot.gridDivisionsX)
+                               ? "#b0bec5" : "#dde3ea"
+                        width: 1
+                        y: chartView.plotArea.y
+                        height: chartView.plotArea.height
+                        x: chartView.plotArea.x + chartView.plotArea.width
+                           * index / Math.max(1, voltmeterRoot.gridDivisionsX)
+                    }
+                }
             }
-            Text{
-                id: tMax
-                anchors{
-                    verticalCenter: xlabel.verticalCenter
-                    right: chartView.right
-                    rightMargin: 20
-                }
 
-                text: voltmeterRoot.maximumTime.toFixed(0)
-                font.pixelSize: voltmeterRoot.fontSize
-                visible: showAxis
+            // ── Gradation labels (only on the axis-bearing subplot) ────
+            Repeater {   // voltage values, top → bottom
+                model: chartItem.showAxis ? voltmeterRoot.gridDivisionsY + 1 : 0
+                Text {
+                    property real frac: index / Math.max(1, voltmeterRoot.gridDivisionsY)
+                    text: (voltmeterRoot.maximumValue
+                           - (voltmeterRoot.maximumValue - voltmeterRoot.minimumValue) * frac).toFixed(0)
+                    font.pixelSize: voltmeterRoot.fontSize - 2
+                    color: "#37474f"
+                    horizontalAlignment: Text.AlignRight
+                    x: 20
+                    width: Math.max(0, chartView.plotArea.x - 26)
+                    y: chartView.plotArea.y + chartView.plotArea.height * frac - height / 2
+                }
             }
 
-            //Voltage axis min/max:
-            Text{
-                id: vMin
-                anchors{
-                    right: ylabel.right
-                    bottom: tMin.top
+            Repeater {   // time values, left → right
+                model: chartItem.showAxis ? voltmeterRoot.gridDivisionsX + 1 : 0
+                Text {
+                    property real frac: index / Math.max(1, voltmeterRoot.gridDivisionsX)
+                    text: (voltmeterRoot.minimumTime
+                           + (voltmeterRoot.maximumTime - voltmeterRoot.minimumTime) * frac).toFixed(0)
+                    font.pixelSize: voltmeterRoot.fontSize - 2
+                    color: "#37474f"
+                    x: chartView.plotArea.x + chartView.plotArea.width * frac - width / 2
+                    y: chartView.plotArea.y + chartView.plotArea.height + 3
                 }
-
-                text: voltmeterRoot.minimumValue.toFixed(0)
-                font.pixelSize: voltmeterRoot.fontSize
-                visible: showAxis
-            }
-            Text{
-                id: vMax
-                anchors{
-                    right: ylabel.right
-                    top: chartView.top
-                    topMargin: 13
-                }
-
-                text: voltmeterRoot.maximumValue.toFixed(0)
-                font.pixelSize: voltmeterRoot.fontSize
-                visible:showAxis
             }
 
             Text{
@@ -326,10 +453,13 @@ Node {
                 antialiasing: true
                 backgroundColor: "transparent"
                 enabled: false // disables mouse input
-                margins.top: 0
-                margins.bottom: 0
-                margins.left: 10
-                margins.right: 0
+                // Reserve a gutter for the gradation labels. The left gutter is
+                // kept on every subplot so stacked traces stay aligned; only the
+                // axis-bearing subplot needs the taller bottom strip.
+                margins.top: 16
+                margins.bottom: chartItem.showAxis ? 30 : 6
+                margins.left: 58
+                margins.right: 12
 
                 Plot {
                     id: series

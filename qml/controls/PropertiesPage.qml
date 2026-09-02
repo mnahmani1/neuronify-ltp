@@ -9,7 +9,11 @@ Item {
     default property alias _data: column.data
 
     width: 320
-    height: 320
+    // Grow to fit the controls rather than clipping them (the properties panel
+    // sizes itself to this item and clips the overflow). 320 stays the minimum,
+    // so existing, shorter panels are unaffected. column.implicitHeight is
+    // derived from the children, so this does not feed back into the anchors.
+    height: Math.max(320, column.implicitHeight + 48)
 
     Column {
         id: column
