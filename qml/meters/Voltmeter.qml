@@ -65,6 +65,15 @@ Node {
     property real realTime: 0.0
     property int numberOfEdges: 0
 
+    // Height of the drawn spike marker, in volts. DISPLAY ONLY: this neuron
+    // model is integrate-and-fire (Cm dV/dt = I_leak + I_syn + I_inj with a
+    // threshold-and-reset rule), so it does not model voltage-gated Na+/K+
+    // conductances and has no action-potential waveform. Spike amplitude is
+    // therefore not a measurable quantity here — only spike times, rates and
+    // the sub-threshold trajectory are. +40 mV is used because it sits in the
+    // physiological range and stays inside a sensibly scaled y-axis.
+    property real spikeDisplayPeak: 40.0e-3
+
     // ── User-definable axes / gradations ───────────────────────────────
     // timeRange (above) is the width of the x-axis window, in seconds.
     // The grid divisions determine how many gradation lines/labels are drawn.
@@ -256,9 +265,18 @@ Node {
             spiked: false,
             neuronFired: function() {
                 connectionPlot.spiked = true
-                firePlot.addPoint(time * timeFactor - 1e-1, 1000e-3 * voltageFactor)
-                firePlot.addPoint(time * timeFactor, neuron.voltage * voltageFactor)
-                firePlot.addPoint(time * timeFactor + 1e-1, 1000e-3 * voltageFactor)
+                // Draw a spike MARKER: a triangle from the current membrane
+                // potential up to spikeDisplayPeak and back. The peak is a
+                // display constant, not a modelled value — this is an
+                // integrate-and-fire neuron, so it has no action-potential
+                // waveform and its amplitude carries no information.
+                // (Previously this drew to +1000 mV, which overshot every
+                // possible y-axis and made spikes look unbounded.)
+                var t = time * timeFactor
+                var v = neuron.voltage * voltageFactor
+                firePlot.addPoint(t - 1e-1, v)
+                firePlot.addPoint(t, voltmeterRoot.spikeDisplayPeak * voltageFactor)
+                firePlot.addPoint(t + 1e-1, v)
             }
         }
 
