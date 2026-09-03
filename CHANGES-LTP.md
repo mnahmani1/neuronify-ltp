@@ -30,6 +30,48 @@ grows thicker and darker as its weight climbs. Five per-synapse controls:
 A companion plain-language guide for entry-level neuroscientists,
 **`Neuronify_LTP_Reference.docx`**, explains each parameter and the math.
 
+## New feature: quantification — axis control, CSV export, metadata
+
+**Scalable axes with gradations.** A voltmeter's Properties panel now has an *Axis scaling*
+section: time span, voltage/time division counts, and a gridline toggle. Every control accepts a
+typed exact value as well as a drag, so figures are reproducible. The plot draws labelled
+gradation lines at each division. Settings are saved with the simulation.
+
+**Per-voltmeter CSV export.** A *Data recording* section (Record / Stop / Clear / Export CSV)
+exports `time_ms` plus a voltage and a **spike** column per neuron. The spike column matters:
+in an integrate-and-fire model the potential resets at threshold, so the voltage column alone
+never shows a spike.
+
+**Session recording — every meter and synapse into one file.** With nothing selected, press
+Properties to reach the *Simulation* page, then *Record all*. This captures every voltmeter and
+every synapse weight on a single shared 1 ms timebase:
+
+```
+time_ms, V1_<neuron>_mV, V1_<neuron>_spike, ..., S1_<from>_to_<to>_weight, ...
+```
+
+The weight columns make the **LTP learning curve** recordable for the first time.
+
+**Metadata sidecar.** Each export also writes `<name>.metadata.json` with the conditions the data
+was produced under — version, timestamps, sampling interval, every neuron's threshold / resting
+potential / resistance / capacitance / refractory period, every synapse's current / delay / time
+constant / full LTP settings, and each synapse's weight at the start and end of the run.
+
+## Important: scope of the neuron model
+
+Neuronify uses a **leaky integrate-and-fire** neuron: `Cm dV/dt = I_leak + I_syn + I_inj` with
+`I_leak = -(V - Em)/R`, plus a threshold-and-reset rule. There are **no voltage-gated Na+/K+
+conductances, no ion reversal potentials, and no action-potential waveform**.
+
+Consequently **spike amplitude, width and shape are not modelled** — the spikes drawn in the
+voltmeter are markers at a fixed +40 mV so the trace is readable. (They were previously drawn at
++1000 mV, which overshot every possible y-axis and made amplitude look unbounded; that is fixed.)
+
+What *is* quantitative: spike times, firing rate, ISI and CV; EPSP/IPSP amplitude; temporal and
+spatial summation; the membrane time constant `tau = R × Cm` (100 MΩ × 0.2 nF = 20 ms); and
+synaptic weight over time. **Below threshold is modelled physics; at and above threshold is a
+marker.**
+
 ## New feature: full configuration persistence on save / reload
 
 Saving a `.neuronify` file and reopening it now restores the complete configuration:
@@ -46,6 +88,10 @@ Saving a `.neuronify` file and reopening it now restores the complete configurat
 - Existing `.neuronify` example files (SQLite format) open correctly.
 - Saving writes the correct SQLite format, so files reopen faithfully.
 - Passive weight decay is observable (was ~1000× too slow to see).
+- Spike Window default corrected to 1.0 s (was 100 s — outside the 0.1–5.0 s slider
+  range, which made the window effectively unbounded).
+- Spikes are drawn at +40 mV instead of +1000 mV, so amplitude no longer appears
+  unbounded (see the scope note above).
 - Simulation stepping / pan-zoom / drag-to-connect / add-node crashes fixed.
 
 ---
