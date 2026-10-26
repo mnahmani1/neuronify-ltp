@@ -80,7 +80,51 @@ Saving a `.neuronify` file and reopening it now restores the complete configurat
 - **Neuron / generator / sensor settings** — threshold, resistance, capacitance, resting
   potential, refractory period, etc. (previously these silently reset to defaults on load).
 
+## Synaptic weight and firing frequency
+
+LTP's weight multiplies the synaptic current: `I_syn = maximumCurrent x exponential x
+(synapticWeight / baselineWeight)`. A bigger weight is a bigger EPSP — but in an
+integrate-and-fire neuron a bigger EPSP only raises the *output rate* while the baseline
+EPSP is still below threshold. Once one presynaptic spike alone crosses threshold, the
+postsynaptic cell is entrained 1:1 and extra weight changes nothing.
+
+The upstream default synapse (`maximumCurrent` 3.0 nA, `tau` 2 ms) delivers an EPSP of
+`3e-9 A x 2e-3 s / 0.2e-9 F` = **30 mV** into the **15 mV** gap between rest (-70 mV) and
+threshold (-55 mV) — twice what is needed. Measured in this build with a 20 Hz generator:
+
+| synapse | weight | output rate |
+|---|---|---|
+| LTP off | 1.00 | 20.00 Hz |
+| LTP on  | 2.49 | 20.00 Hz |
+
+**Newly drawn synapses now default to 1.5 nA**, which puts the baseline EPSP at threshold
+instead of twice over it, so weight grades the firing rate. Same circuits, 50 Hz generator:
+
+| synapse | weight | output rate |
+|---|---|---|
+| LTP off | 1.00 | 25.06 Hz |
+| LTP on  | 2.79 | 50.11 Hz |
+
+Saved simulations keep whatever current they were stored with, so the bundled examples are
+unchanged; the per-synapse **Current (nA)** slider restores 3.0 nA for a single synapse.
+
 ## Bug fixes included in this build
+
+- Every stacked trace in a multi-neuron voltmeter draws its own x and y axis with labels.
+  Previously only the most recently connected neuron's subplot was labelled and the rest
+  were blank.
+- Removed the baseline artifact that joined every action potential in the voltmeter trace.
+  Spike markers were drawn into a second line series, which also drew a segment from one
+  marker to the next; they are now drawn into the main trace.
+- The **Delete** and **Backspace** keys delete the selected item. This lives on the
+  workspace rather than as a window-wide shortcut, so Backspace still edits text normally
+  in a neuron's Label or a slider's value box.
+- The window title is `Neuronify_LTP` instead of a version string that rendered as a
+  commit hash.
+- A neuron's Properties panel is drawn at its full width on the first click, so the
+  **Membrane** tab is inside the panel outline. The panel's reveal animation animated an
+  anchor change, which writes width directly and finished on the previously shown page's
+  width; it now animates x and leaves the width binding alone.
 
 - Connection lines are drawn again (were invisible; only the diamond connector showed).
 - Synapse modulation controls (current / delay / time constant) restored to the panel.

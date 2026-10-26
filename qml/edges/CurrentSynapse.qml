@@ -57,7 +57,18 @@ Edge {
 
         onResettedProperties: {
             tau = 2.0e-3
-            maximumCurrent = 3.0e-9
+            // 1.5 nA, not the upstream 3.0 nA. At 3 nA a single EPSP is
+            // (3e-9 A x 2e-3 s) / 0.2e-9 F = 30 mV into a 15 mV gap between
+            // rest (-70 mV) and threshold (-55 mV), so every presynaptic spike
+            // already fires the postsynaptic cell and the postsynaptic rate is
+            // pinned to the presynaptic rate. Synaptic weight then cannot
+            // change the firing frequency at all -- measured: weight 1.00 and
+            // weight 2.49 both give exactly 20.00 Hz out for 20 Hz in.
+            // At 1.5 nA the baseline EPSP sits at threshold instead, so weight
+            // grades the output rate (1.0 -> 2.5 roughly doubles it from 20 Hz
+            // to 50 Hz at 50 Hz input). Saved simulations keep whatever current
+            // they were stored with; this only sets newly drawn synapses.
+            maximumCurrent = 1.5e-9
             delay = 5.0e-3
             alphaFunction = false;
         }
