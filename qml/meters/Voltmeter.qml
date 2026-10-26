@@ -180,12 +180,19 @@ Node {
                     var connectionPlot = voltmeterRoot.connectionPlots[i]
                     var plot = connectionPlot.plot
                     var neuron = connectionPlot.connection.itemB
-                    if(neuron) {
-                        if(neuron.voltage) {
-                            plot.addPoint(time * timeFactor, neuron.voltage * voltageFactor)
+                    var didSpike = connectionPlot.spiked
+                    if(neuron && neuron.voltage !== undefined) {
+                        // The spike marker is drawn INTO the main trace. Using a
+                        // second series for it meant the series also drew a
+                        // segment from one marker to the next, which showed up as
+                        // a baseline joining every action potential.
+                        if(didSpike) {
+                            plot.addPoint(time * timeFactor - 1e-2,
+                                          voltmeterRoot.spikeDisplayPeak * voltageFactor)
                         }
+                        plot.addPoint(time * timeFactor, neuron.voltage * voltageFactor)
                     }
-                    spikes.push(connectionPlot.spiked ? 1 : 0)
+                    spikes.push(didSpike ? 1 : 0)
                     connectionPlot.spiked = false
                 }
 
@@ -231,7 +238,6 @@ Node {
         numberOfEdges +=1
         var item = chartViewComponent.createObject(chartContainer);
         var plot = item.plot;
-        var firePlot = item.firePlot;
 
         var neuron = edge.itemB;
         item.label = Qt.binding(function(){
@@ -241,14 +247,11 @@ Node {
             return neuron.color;
 //            return "#CEB6EE"
         });
+        // Every subplot carries its own axes and labels. (Previously only the
+        // newest plot did, leaving the others blank when several neurons were
+        // connected to one voltmeter.)
         item.showAxis = true
         item.showAxisLabel = true
-
-        for(var i in connectionPlots) { // loop over all old plots
-            var connectionPlot = connectionPlots[i]
-            connectionPlot.item.showAxis = false
-            connectionPlot.item.showAxisLabel = false
-        }
 
         var newList = connectionPlots
 
@@ -256,7 +259,6 @@ Node {
             item: item,
             connection: edge,
             plot: plot,
-            firePlot: firePlot,
             neuron: neuron,
             // Set on each fire event, consumed and cleared by the next sample.
             // This is what makes spikes recoverable from the CSV: in an
@@ -272,11 +274,6 @@ Node {
                 // waveform and its amplitude carries no information.
                 // (Previously this drew to +1000 mV, which overshot every
                 // possible y-axis and made spikes look unbounded.)
-                var t = time * timeFactor
-                var v = neuron.voltage * voltageFactor
-                firePlot.addPoint(t - 1e-1, v)
-                firePlot.addPoint(t, voltmeterRoot.spikeDisplayPeak * voltageFactor)
-                firePlot.addPoint(t + 1e-1, v)
             }
         }
 
@@ -300,10 +297,6 @@ Node {
             }
         }
         currentSeries -= 1
-        if(connectionPlots.length > 0){
-            connectionPlots[connectionPlots.length -1 ].item.showAxis = true
-            connectionPlots[connectionPlots.length -1 ].item.showAxisLabel = true
-        }
     }
 
 
@@ -346,7 +339,6 @@ Node {
         Item{
             id: chartItem
             property Plot plot: series
-            property Plot firePlot: fireSeries
             property string label: ""
             property bool showAxis: false
             property bool showAxisLabel: false
@@ -484,15 +476,6 @@ Node {
                     axisX: axisX
                     axisY: axisY
                     timeRange: voltmeterRoot.timeRange * timeFactor
-                    color: chartItem.lineColor
-                    width: 3.0
-                }
-
-                Plot {
-                    id: fireSeries
-                    axisX: axisX
-                    axisY: axisY
-                    timeRange: series.timeRange
                     color: chartItem.lineColor
                     width: 3.0
                 }
