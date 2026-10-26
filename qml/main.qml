@@ -16,7 +16,7 @@ ApplicationWindow {
     visible: true
     width: 1136
     height: 640
-    title: qsTr("Neuronify " + Version.latestTag)
+    title: "Neuronify_LTP"
 
     Component.onCompleted: {
         console.log("ApplicationWindow load completed " + Date.now());

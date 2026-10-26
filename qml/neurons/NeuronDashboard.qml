@@ -24,8 +24,12 @@ Rectangle {
 //        completed = true
     }
 
-    width: 480
-    height: 360
+    // The properties-panel Loader sizes itself from the implicit size, so these
+    // have to be set as well as the explicit ones (see PropertiesPanel.qml).
+    implicitWidth: 480
+    implicitHeight: 360
+    width: implicitWidth
+    height: implicitHeight
 
     MouseArea {
         anchors.fill: parent

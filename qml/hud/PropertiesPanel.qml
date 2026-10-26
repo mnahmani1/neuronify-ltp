@@ -57,6 +57,12 @@ Item {
         id: loader
         clip: true
         sourceComponent: activeObject && activeObject.controls ? activeObject.controls : simulationComponent
+        // Size from the loaded page's *implicit* size rather than letting the
+        // Loader derive an implicit size of its own: that derivation lagged one
+        // load behind, so clicking a neuron drew the panel at the previously
+        // shown page's width and the Membrane tab fell outside the outline.
+        width: item ? item.implicitWidth : 0
+        height: item ? item.implicitHeight : 0
     }
 
     Component {

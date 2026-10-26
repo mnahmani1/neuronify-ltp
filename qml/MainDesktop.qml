@@ -207,7 +207,16 @@ Item {
         }
         focus: true
         Keys.onPressed: {
-            // Optional: pass key events to Neuronify workspace if needed
+            // Delete the selection with the keyboard. This lives on the
+            // workspace item rather than as a global Shortcut on purpose: a
+            // window-wide Backspace shortcut would also fire while the user is
+            // typing in a text field (a neuron's Label, a slider's value box).
+            if(event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
+                if(neuronify.activeObject) {
+                    neuronify.deleteSelected()
+                    event.accepted = true
+                }
+            }
         }
 
         PlaybackControls {
@@ -504,33 +513,26 @@ Item {
         property bool revealed: false
 
         anchors {
-            left: itemMenu.right
             bottom: parent.bottom
         }
         activeObject: neuronify.activeObject
         simulator: neuronify
 
-        states: [
-            State {
-                when: !propertiesPanel.revealed
-                AnchorChanges {
-                    target: propertiesPanel
-                    anchors {
-                        left: undefined
-                        right: itemMenu.left
-                    }
-                }
-            }
-        ]
+        // Slide in from behind the item menu by animating x, not by animating
+        // an anchor change. An AnchorAnimation writes width/height directly
+        // while it runs, and the panel's width changes at the same moment (the
+        // Loader swaps in the selected item's control page). The animation then
+        // finished on the *previous* page's width and left it there, which is
+        // why the first neuron you clicked got a panel too narrow to contain
+        // the Membrane tab. Animating x leaves `width: loader.width` alone.
+        x: revealed ? itemMenu.x + itemMenu.width : itemMenu.x - width
 
-        transitions: [
-            Transition {
-                AnchorAnimation {
-                    duration: 200
-                    easing.type: Easing.InOutQuad
-                }
+        Behavior on x {
+            NumberAnimation {
+                duration: 200
+                easing.type: Easing.InOutQuad
             }
-        ]
+        }
     }
 
     HudShadow {
