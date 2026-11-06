@@ -212,10 +212,35 @@ Item {
             // window-wide Backspace shortcut would also fire while the user is
             // typing in a text field (a neuron's Label, a slider's value box).
             if(event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
-                if(neuronify.activeObject) {
+                if(neuronify.activeObject || neuronify.selectedEntities.length > 0) {
                     neuronify.deleteSelected()
                     event.accepted = true
                 }
+                return
+            }
+
+            // Clipboard and select-all. Same reasoning as above: these live on
+            // the workspace, not on window-wide Shortcuts, so ⌘C in a text
+            // field still copies text. Cmd is Meta on macOS, Ctrl elsewhere.
+            var command = (event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
+            if(!command) return
+            switch(event.key) {
+            case Qt.Key_X:
+                neuronify.cut()
+                event.accepted = true
+                break
+            case Qt.Key_C:
+                neuronify.copy()
+                event.accepted = true
+                break
+            case Qt.Key_V:
+                neuronify.paste()
+                event.accepted = true
+                break
+            case Qt.Key_A:
+                neuronify.selectAll()
+                event.accepted = true
+                break
             }
         }
 

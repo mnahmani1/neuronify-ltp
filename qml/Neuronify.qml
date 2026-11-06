@@ -249,9 +249,9 @@ Rectangle {
         }
 
         connection.clicked.connect(function(c) {
-            deselectAll()
-            activeObject = c
-            c.selected = true
+            // setSelection, not a bare deselectAll + flag: selectedEntities has
+            // to hold the edge too or Cut/Copy/Delete would not see it.
+            setSelection([c])
             latestZ -= 1
             c.z = latestZ
             focus = true
@@ -311,13 +311,115 @@ Rectangle {
        Selection / Interaction
        ----------------------------- */
 
+    // Shift / Ctrl / Cmd extend a selection rather than replacing it. Cmd is
+    // Qt.MetaModifier on macOS and Ctrl is Qt.ControlModifier everywhere else,
+    // so accept any of the three and the platform question goes away.
+    readonly property int multiSelectModifiers: Qt.ShiftModifier | Qt.ControlModifier | Qt.MetaModifier
+
+    function isMultiSelect(mouse) {
+        return mouse !== undefined && mouse !== null
+                && (mouse.modifiers & multiSelectModifiers) !== 0
+    }
+
+    function isSelected(entity) {
+        return entity !== null && entity !== undefined
+                && selectedEntities.indexOf(entity) >= 0
+    }
+
+    // Replace the selection with `list`. Always assigns a *new* array to
+    // selectedEntities: mutating the existing one in place would not notify
+    // the bindings that watch it.
+    function setSelection(list) {
+        deselectAll()
+        var next = []
+        for(var i = 0; i < list.length; i++) {
+            var entity = list[i]
+            if(!entity || next.indexOf(entity) >= 0) continue
+            entity.selected = true
+            next.push(entity)
+        }
+        selectedEntities = next
+        // Prefer a node as the active object -- that is what the properties
+        // panel shows, and a rubber-band selection appends the edges last.
+        var active = null
+        for(var k = next.length - 1; k >= 0; k--) {
+            if(!next[k].isEdge) { active = next[k]; break }
+        }
+        activeObject = active ? active : (next.length > 0 ? next[next.length - 1] : null)
+    }
+
+    function addToSelection(entity) {
+        if(!entity || isSelected(entity)) {
+            if(entity) activeObject = entity
+            return
+        }
+        var next = selectedEntities.slice()
+        next.push(entity)
+        entity.selected = true
+        selectedEntities = next
+        activeObject = entity
+    }
+
+    function toggleSelection(entity) {
+        if(!entity) return
+        var index = selectedEntities.indexOf(entity)
+        if(index < 0) {
+            addToSelection(entity)
+            return
+        }
+        var next = selectedEntities.slice()
+        next.splice(index, 1)
+        entity.selected = false
+        selectedEntities = next
+        activeObject = next.length > 0 ? next[next.length - 1] : null
+    }
+
+    // Every edge whose two endpoints are both in `nodes`. These travel with a
+    // copy/cut and are shown as selected so the user can see what will move.
+    function edgesWithin(nodes) {
+        var result = []
+        for(var i = 0; i < graphEngine.edges.length; i++) {
+            var edge = graphEngine.edges[i]
+            if(!edge) continue
+            if(nodes.indexOf(edge.itemA) >= 0 && nodes.indexOf(edge.itemB) >= 0) {
+                result.push(edge)
+            }
+        }
+        return result
+    }
+
+    function selectAll() {
+        var all = []
+        for(var i = 0; i < graphEngine.nodes.length; i++) {
+            if(graphEngine.nodes[i]) all.push(graphEngine.nodes[i])
+        }
+        setSelection(all.concat(edgesWithin(all)))
+    }
+
+    // Nodes only — edges are implied by their endpoints when copying.
+    function selectedNodes() {
+        var nodes = []
+        for(var i = 0; i < selectedEntities.length; i++) {
+            var entity = selectedEntities[i]
+            if(entity && !entity.isEdge) nodes.push(entity)
+        }
+        if(nodes.length === 0 && activeObject && !activeObject.isEdge) {
+            nodes.push(activeObject)
+        }
+        return nodes
+    }
+
     function clickedEntity(entity, mouse) {
         if(clickMode === "selection") {
-            if(activeObject) activeObject.selected = false
-            deselectAll()
-            selectedEntities = [entity]
-            entity.selected = true
-            activeObject = entity
+            if(isMultiSelect(mouse)) {
+                toggleSelection(entity)
+            } else if(selectedEntities.length > 1 && isSelected(entity)) {
+                // Clicking a member of a group keeps the group intact (so it
+                // can be dragged as one); only the active object moves.
+                activeObject = entity
+            } else {
+                setSelection([entity])
+            }
         } else if(clickMode === "connectMultipleFromThis") {
             connectEntities(activeObject, entity)
         } else if(clickMode === "connectMultipleToThis") {
@@ -327,7 +429,7 @@ Rectangle {
     }
 
     function deselectAll() {
-        selectedEntities.length = 0
+        selectedEntities = []
         activeObject = null
 
         for(var i = 0; i < graphEngine.nodes.length; i++) {
@@ -337,6 +439,29 @@ Rectangle {
         for(var j = 0; j < graphEngine.edges.length; j++) {
             if(graphEngine.edges[j]) graphEngine.edges[j].selected = false
         }
+    }
+
+    // Select every node whose bounds intersect the rectangle (given in
+    // neuronLayer coordinates), plus the edges between them. `additive` keeps
+    // whatever was already selected.
+    function selectWithin(x1, y1, x2, y2, additive) {
+        var left = Math.min(x1, x2), right = Math.max(x1, x2)
+        var top = Math.min(y1, y2), bottom = Math.max(y1, y2)
+
+        var hits = []
+        for(var i = 0; i < graphEngine.nodes.length; i++) {
+            var node = graphEngine.nodes[i]
+            if(!node) continue
+            if(node.x + node.width < left || node.x > right) continue
+            if(node.y + node.height < top || node.y > bottom) continue
+            hits.push(node)
+        }
+
+        var nodes = additive ? selectedNodes() : []
+        for(var h = 0; h < hits.length; h++) {
+            if(nodes.indexOf(hits[h]) < 0) nodes.push(hits[h])
+        }
+        setSelection(nodes.concat(edgesWithin(nodes)))
     }
 
     function raiseToTop(node) {
@@ -378,24 +503,118 @@ Rectangle {
         activeObject = null
     }
 
+    // Deletes the whole selection (it used to delete only the active object,
+    // which left the rest of a multi-selection behind).
     function deleteSelected() {
-        if (!activeObject) return
-        if (activeObject.isEdge) {
-            graphEngine.removeEdge(activeObject)
-            activeObject.destroy()
-        } else {
-            var node = activeObject
-            for (var i = graphEngine.edges.length - 1; i >= 0; i--) {
-                var e = graphEngine.edges[i]
-                if (e.itemA === node || e.itemB === node) {
-                    graphEngine.removeEdge(e)
-                    e.destroy()
-                }
-            }
-            graphEngine.removeNode(node)
-            node.destroy()
+        var targets = selectedEntities.slice()
+        if(targets.length === 0 && activeObject) targets = [activeObject]
+        if(targets.length === 0) return
+
+        // One undo entry for the whole operation, taken at the end.
+        undoRecordingDepth += 1
+
+        var edges = []
+        var nodes = []
+        for(var t = 0; t < targets.length; t++) {
+            var target = targets[t]
+            if(!target) continue
+            if(target.isEdge) edges.push(target)
+            else nodes.push(target)
         }
+
+        // Edges first, and every edge touching a doomed node with them —
+        // removing a node while an edge still points at it leaves the engine
+        // holding a dangling pointer.
+        for(var i = graphEngine.edges.length - 1; i >= 0; i--) {
+            var edge = graphEngine.edges[i]
+            if(!edge) continue
+            if(edges.indexOf(edge) < 0
+                    && nodes.indexOf(edge.itemA) < 0
+                    && nodes.indexOf(edge.itemB) < 0) continue
+            graphEngine.removeEdge(edge)
+            edge.destroy()
+        }
+
+        for(var n = 0; n < nodes.length; n++) {
+            graphEngine.removeNode(nodes[n])
+            nodes[n].destroy()
+        }
+
+        selectedEntities = []
         activeObject = null
+        undoRecordingDepth -= 1
+        stateChange()
+    }
+
+    /* -----------------------------
+       Clipboard (cut / copy / paste)
+       -----------------------------
+
+       The clipboard holds a serialized sub-graph in exactly the same format as
+       a saved file, so paste reuses the loader: the selected nodes plus every
+       edge whose two endpoints are both selected.
+    */
+
+    property real pasteOffset: 48.0
+
+    function copy() {
+        var nodes = selectedNodes()
+        if(nodes.length === 0) return false
+        var state = fileManager.serializeState(nodes)
+        if(!state) {
+            console.warn("copy: could not serialize the selection")
+            return false
+        }
+        copiedState = JSON.stringify(state)
+        return true
+    }
+
+    function cut() {
+        if(!copy()) return
+        deleteSelected()
+    }
+
+    function paste() {
+        if(!copiedState) return
+        var data
+        try {
+            data = JSON.parse(copiedState)
+        } catch(e) {
+            console.warn("paste: clipboard contents could not be parsed")
+            return
+        }
+        if(!data.nodes || data.nodes.length === 0) return
+
+        // Offset the copy so it does not land exactly on top of the original,
+        // and keep moving it on every further paste so repeats cascade.
+        for(var o = 0; o < data.nodes.length; o++) {
+            var saved = data.nodes[o].savedProperties
+            if(!saved) continue
+            saved.x = (saved.x !== undefined ? saved.x : 0) + pasteOffset
+            saved.y = (saved.y !== undefined ? saved.y : 0) + pasteOffset
+        }
+        copiedState = JSON.stringify(data)
+
+        undoRecordingDepth += 1
+        var created = []
+        for(var i = 0; i < data.nodes.length; i++) {
+            var nodeProps = data.nodes[i]
+            // Deep copy: createEntity writes simulator/dragProxy into the dict
+            // it is handed, which would otherwise end up back on the clipboard.
+            var props = JSON.parse(JSON.stringify(nodeProps.savedProperties || {}))
+            created.push(createEntity(nodeProps.filename, props))
+        }
+        for(var e = 0; e < data.edges.length; e++) {
+            var edgeProps = data.edges[e]
+            var from = created[parseInt(edgeProps.from)]
+            var to = created[parseInt(edgeProps.to)]
+            if(from && to) connectEntities(from, to, edgeProps.filename, edgeProps.savedProperties)
+        }
+        undoRecordingDepth -= 1
+
+        var pasted = []
+        for(var c = 0; c < created.length; c++) if(created[c]) pasted.push(created[c])
+        setSelection(pasted.concat(edgesWithin(pasted)))
         stateChange()
     }
 
@@ -795,6 +1014,10 @@ Rectangle {
             // drag started from so the scene does not slide out from under it.
             property bool zoomActive: false
             property point zoomAnchor
+            // Shift / Ctrl / Cmd + drag on the background rubber-band selects.
+            // Plain left-drag still pans, so the two never collide.
+            property bool selectActive: false
+            property point selectOrigin
 
             // Scale about (cx, cy) in this item's coordinates.
             function zoomBy(factor, cx, cy) {
@@ -829,20 +1052,46 @@ Rectangle {
                 lastPanPos = Qt.point(mouse.x, mouse.y)
                 panActive = false
                 zoomActive = false
+                selectActive = false
                 if (mouse.button === Qt.RightButton) {
                     zoomActive = true
                     zoomAnchor = Qt.point(mouse.x, mouse.y)
                 } else if (mouse.button === Qt.LeftButton) {
-                    deselectAll()
-                    root.backgroundClicked()
+                    if (root.isMultiSelect(mouse)) {
+                        selectActive = true
+                        selectOrigin = Qt.point(mouse.x, mouse.y)
+                        selectionBox.x = mouse.x
+                        selectionBox.y = mouse.y
+                        selectionBox.width = 0
+                        selectionBox.height = 0
+                        selectionBox.visible = true
+                    } else {
+                        deselectAll()
+                        root.backgroundClicked()
+                    }
                     root.focus = true
                 }
                 mouse.accepted = true
             }
 
             onReleased: {
+                if (selectActive) {
+                    selectionBox.visible = false
+                    // The box is drawn in this item's coordinates; the nodes
+                    // live inside the scaled/panned workspace, so map both
+                    // corners across before testing them.
+                    var a = mapToItem(neuronLayer, selectOrigin.x, selectOrigin.y)
+                    var b = mapToItem(neuronLayer, mouse.x, mouse.y)
+                    // A modifier-click with no drag should not wipe the
+                    // selection, so ignore boxes that never opened up.
+                    if (Math.abs(mouse.x - selectOrigin.x) > 3
+                            || Math.abs(mouse.y - selectOrigin.y) > 3) {
+                        root.selectWithin(a.x, a.y, b.x, b.y, true)
+                    }
+                }
                 panActive = false
                 zoomActive = false
+                selectActive = false
             }
 
             onPositionChanged: {
@@ -859,6 +1108,14 @@ Rectangle {
                     // Push the mouse forward (up the screen, dy < 0) to zoom in,
                     // pull it back to zoom out.
                     zoomBy(Math.exp(-dy * 0.006), zoomAnchor.x, zoomAnchor.y)
+                    return
+                }
+
+                if (selectActive) {
+                    selectionBox.x = Math.min(selectOrigin.x, mouse.x)
+                    selectionBox.y = Math.min(selectOrigin.y, mouse.y)
+                    selectionBox.width = Math.abs(mouse.x - selectOrigin.x)
+                    selectionBox.height = Math.abs(mouse.y - selectOrigin.y)
                     return
                 }
 
@@ -926,6 +1183,18 @@ Rectangle {
 
             Item { id: connectionLayer; anchors.fill: parent }
             Item { id: neuronLayer;    anchors.fill: parent }
+        }
+
+        // Rubber-band selection box. Lives outside `workspace` so it is drawn
+        // on top of the nodes and is not itself scaled by the zoom.
+        Rectangle {
+            id: selectionBox
+            visible: false
+            z: 100
+            color: Qt.rgba(0.42, 0.68, 0.84, 0.18)
+            border.color: Qt.rgba(0.25, 0.49, 0.72, 0.9)
+            border.width: 1
+            antialiasing: true
         }
 
         // Drag proxy kept for API compatibility

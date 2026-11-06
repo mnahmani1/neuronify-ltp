@@ -70,6 +70,14 @@ Item {
         var edgeList = [];
         var otherList = [];
 
+        // The nodes actually written out, in the order they are written. Edge
+        // endpoints are stored as indices into THIS list, not into
+        // graphEngine.nodes: with a filter (a copy of part of the workspace)
+        // the two differ, and using the engine's index wired pasted edges to
+        // the wrong neurons. Without a filter the two lists are identical, so
+        // saved files are unchanged.
+        var includedNodes = [];
+
         var counter = 0
         for(var i in nodes) {
             var node = nodes[i];
@@ -85,6 +93,7 @@ Item {
                 savedProperties: savedProperties
             };
             nodeList.push(nodeDump)
+            includedNodes.push(node)
         }
 
         for(var i in edges) {
@@ -99,12 +108,12 @@ Item {
                 console.log("ERROR: Could not objectify edge " + edge + " number " + i);
             }
 
-            var itemAEntityIndex = graphEngine.nodeIndex(edge.itemA)
+            var itemAEntityIndex = includedNodes.indexOf(edge.itemA)
             if(itemAEntityIndex === -1) {
                 console.error("Could not find index of node " + edge.itemA + " in GraphEngine! Aborting dump!")
                 return false
             }
-            var itemBEntityIndex = graphEngine.nodeIndex(edge.itemB)
+            var itemBEntityIndex = includedNodes.indexOf(edge.itemB)
             if(itemBEntityIndex === -1) {
                 console.error("Could not find index of node " + edge.itemB + " in GraphEngine! Aborting dump!")
                 return false

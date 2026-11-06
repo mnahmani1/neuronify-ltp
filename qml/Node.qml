@@ -125,6 +125,13 @@ NodeBase {
         }
     }
 
+    // Nodes that move along with this one because they are part of the same
+    // multi-selection. Captured on press as [{item, x, y}] so each one can be
+    // offset from where it started rather than accumulating rounding error.
+    property var groupDrag: []
+    property real dragOriginX: 0.0
+    property real dragOriginY: 0.0
+
     MouseArea {
         enabled: useDefaultMouseHandling
         anchors.fill: parent
@@ -133,8 +140,32 @@ NodeBase {
 
         onPressed: {
             root.dragging = true
+            root.dragOriginX = root.x
+            root.dragOriginY = root.y
+            root.groupDrag = []
+            // Dragging any member of a multi-selection drags the whole group.
+            if(root.selected && simulator && simulator.selectedEntities) {
+                var selection = simulator.selectedEntities
+                for(var i = 0; i < selection.length; i++) {
+                    var other = selection[i]
+                    if(!other || other === root || other.isEdge) continue
+                    root.groupDrag.push({item: other, x: other.x, y: other.y})
+                }
+            }
             dragStarted(root)
             mouse.accepted = true;
+        }
+
+        onPositionChanged: {
+            if(root.groupDrag.length === 0) return
+            var dx = root.x - root.dragOriginX
+            var dy = root.y - root.dragOriginY
+            for(var i = 0; i < root.groupDrag.length; i++) {
+                var entry = root.groupDrag[i]
+                if(!entry.item) continue
+                entry.item.x = entry.x + dx
+                entry.item.y = entry.y + dy
+            }
         }
 
         onClicked: {
@@ -144,6 +175,7 @@ NodeBase {
 
         onReleased: {
             root.dragging = false
+            root.groupDrag = []
             dragEnded(root)
             mouse.accepted = true;
         }
