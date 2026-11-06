@@ -92,8 +92,34 @@ Rectangle {
         deleteEverything()
         loadState(data)
         hasUnsavedChanges = false
+        // Seed the undo stack with the state as loaded. undoList holds snapshots
+        // with the *current* state on top, so without this baseline entry the
+        // first edit leaves only one entry and undo() (which needs a previous
+        // state to return to) silently did nothing.
+        resetUndoHistory()
+    }
+
+    // Start an undo history whose only entry is the workspace as it stands now.
+    function resetUndoHistory() {
         undoList.length = 0
         redoList.length = 0
+        var snapshot = snapshotState()
+        if(snapshot) undoList.push(snapshot)
+    }
+
+    // One undo entry: the whole workspace as a JSON string. It has to be a
+    // string, not the object serializeState() returns — undo()/redo() parse
+    // these back with JSON.parse(), and parsing an object stringifies it to
+    // "[object Object]" first, so every undo threw a SyntaxError and did
+    // nothing. Returns null when the state could not be serialized.
+    function snapshotState() {
+        try {
+            var state = fileManager.serializeState()
+            if(!state) return null
+            return JSON.stringify(state)
+        } catch(e) {
+            return null
+        }
     }
 
     function loadState(data) {
@@ -175,7 +201,6 @@ Rectangle {
         // createObject cannot set through initial-property assignment.
         applyNodeProperties(entity, properties)
 
-        stateChange()
         undoRecordingDepth += 1
 
         entity.clicked.connect(clickedEntity)
@@ -188,21 +213,27 @@ Rectangle {
         graphEngine.addNode(entity)
         hasUnsavedChanges = true
         undoRecordingDepth -= 1
+        // Snapshot after the node exists. Recording before the change pushed the
+        // *previous* state, which put undo one step behind: every undo jumped
+        // back two edits instead of one.
+        stateChange()
         return entity
     }
 
     function connectEntities(itemA, itemB, filename, properties) {
         if(itemA === itemB || connectionExists(itemA, itemB) || !itemB.canReceiveConnections) return null
 
-        stateChange()
         undoRecordingDepth += 1
 
         var connectionComponent = filename ? Qt.createComponent(filename)
                                 : (itemA.preferredEdge ? itemA.preferredEdge : Qt.createComponent("Edge.qml"))
 
         var connection = connectionComponent.createObject(connectionLayer)
-        if (!connection)
+        if (!connection) {
+            // Must unwind the guard, or undo recording stays off for good.
+            undoRecordingDepth -= 1
             return null
+        }
 
         connection.itemA = itemA
         connection.itemB = itemB
@@ -231,6 +262,8 @@ Rectangle {
         graphEngine.addEdge(connection)
         hasUnsavedChanges = true
         undoRecordingDepth -= 1
+        // Snapshot after the edge exists (see createEntity).
+        stateChange()
         return connection
     }
 
@@ -750,7 +783,7 @@ Rectangle {
         MouseArea {
             id: workspaceMouseArea
             anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
             // Hover must NOT be enabled: with it on, onPositionChanged fires on plain
             // cursor movement and pans the workspace, making everything follow the mouse.
             // Panning happens only during an actual click-drag (see onPositionChanged).
@@ -758,30 +791,48 @@ Rectangle {
 
             property point lastPanPos
             property bool panActive: false
+            // Right-button drag zooms; the zoom stays anchored on the point the
+            // drag started from so the scene does not slide out from under it.
+            property bool zoomActive: false
+            property point zoomAnchor
+
+            // Scale about (cx, cy) in this item's coordinates.
+            function zoomBy(factor, cx, cy) {
+                var oldScale = workspace.scale
+                var newScale = Math.max(0.1, Math.min(4.0, oldScale * factor))
+                if (newScale === oldScale) return
+                workspace.scale = newScale
+                workspace.x = cx - (cx - workspace.x) * (newScale / oldScale)
+                workspace.y = cy - (cy - workspace.y) * (newScale / oldScale)
+            }
 
             onWheel: {
-                if (wheel.pixelDelta.x !== 0 || wheel.pixelDelta.y !== 0) {
-                    // Trackpad two-finger scroll → pan
-                    workspace.x += wheel.pixelDelta.x
-                    workspace.y += wheel.pixelDelta.y
+                // Scrolling zooms, on a wheel and on a trackpad alike. It used to
+                // pan on anything that reported a pixelDelta (every trackpad and
+                // the Magic Mouse), which both duplicated the left-drag pan and
+                // left those devices with no way to zoom at all.
+                var factor
+                if (wheel.pixelDelta.y !== 0) {
+                    // Continuous: proportional to the gesture, but capped at 5%
+                    // per event so one coarse event from a mouse driver or a
+                    // momentum flick cannot jump the whole zoom range.
+                    var step = Math.max(-0.05, Math.min(0.05, wheel.pixelDelta.y * 0.0025))
+                    factor = Math.exp(step)
                 } else {
-                    // Mouse wheel → zoom toward cursor
-                    var factor = wheel.angleDelta.y > 0 ? 1.1 : (1.0 / 1.1)
-                    var newScale = Math.max(0.1, Math.min(4.0, workspace.scale * factor))
-                    var oldScale = workspace.scale
-                    var cx = wheel.x
-                    var cy = wheel.y
-                    workspace.scale = newScale
-                    workspace.x = cx - (cx - workspace.x) * (newScale / oldScale)
-                    workspace.y = cy - (cy - workspace.y) * (newScale / oldScale)
+                    factor = Math.pow(1.1, wheel.angleDelta.y / 120) // 10% per notch
                 }
+                zoomBy(factor, wheel.x, wheel.y)
                 wheel.accepted = true
             }
 
             onPressed: {
                 lastPanPos = Qt.point(mouse.x, mouse.y)
                 panActive = false
-                if (mouse.button === Qt.LeftButton) {
+                zoomActive = false
+                if (mouse.button === Qt.RightButton) {
+                    zoomActive = true
+                    zoomAnchor = Qt.point(mouse.x, mouse.y)
+                } else if (mouse.button === Qt.LeftButton) {
                     deselectAll()
                     root.backgroundClicked()
                     root.focus = true
@@ -789,14 +840,28 @@ Rectangle {
                 mouse.accepted = true
             }
 
+            onReleased: {
+                panActive = false
+                zoomActive = false
+            }
+
             onPositionChanged: {
-                // Only pan while a mouse button is actually held down (click-drag).
+                // Only act while a mouse button is actually held down (click-drag).
                 // Without this guard, moving the cursor alone would drag the whole
                 // workspace around. Zoom (onWheel) is unaffected.
                 if (!pressed) return
 
                 var dx = mouse.x - lastPanPos.x
                 var dy = mouse.y - lastPanPos.y
+                lastPanPos = Qt.point(mouse.x, mouse.y)
+
+                if (zoomActive) {
+                    // Push the mouse forward (up the screen, dy < 0) to zoom in,
+                    // pull it back to zoom out.
+                    zoomBy(Math.exp(-dy * 0.006), zoomAnchor.x, zoomAnchor.y)
+                    return
+                }
+
                 if (!panActive && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
                     panActive = true
                 }
@@ -804,7 +869,6 @@ Rectangle {
                     workspace.x += dx
                     workspace.y += dy
                 }
-                lastPanPos = Qt.point(mouse.x, mouse.y)
             }
         }
 
@@ -877,10 +941,11 @@ Rectangle {
     function stateChange() {
         hasUnsavedChanges = true;
         if(undoRecordingEnabled) {
-            try {
-                undoList.push(fileManager.serializeState());
-            } catch(e) {}
-            redoList.length = 0
+            var snapshot = snapshotState()
+            if(snapshot) {
+                undoList.push(snapshot)
+                redoList.length = 0
+            }
         }
     }
 
