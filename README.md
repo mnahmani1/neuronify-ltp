@@ -2,10 +2,46 @@
 >
 > This is a modified build of Neuronify that adds **Long-Term Potentiation (synaptic
 > plasticity)** and **full configuration persistence** (circuits keep their settings on
-> save/reload). See **[CHANGES-LTP.md](CHANGES-LTP.md)** for the feature list, the math,
-> build-from-source steps, and how to open the pre-built macOS app.
+> save/reload). See **[CHANGES-LTP.md](CHANGES-LTP.md)** for the feature list and the math.
 >
-> Distributed under the GPLv3, same as upstream. The original project is below.
+> **Downloads are on the [release page](https://github.com/mnahmani1/neuronify-ltp/releases/tag/v1.0-ltp)** — see just below.
+>
+> Distributed under the GPLv3, same as upstream. The original project's README follows the
+> download section.
+
+---
+
+# Download Neuronify-LTP
+
+**If you just want to run the app, download it here. You do not need Qt, you do not need to
+build anything, and you do not need the original Neuronify.**
+
+### ➡️  [**Get the latest release**](https://github.com/mnahmani1/neuronify-ltp/releases/tag/v1.0-ltp)
+
+| Platform | Download | Requirements |
+|---|---|---|
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | [Neuronify-LTP-macOS-AppleSilicon.dmg](https://github.com/mnahmani1/neuronify-ltp/releases/download/v1.0-ltp/Neuronify-LTP-macOS-AppleSilicon.dmg) | macOS 11 or later |
+| **Windows** (64-bit) | [Neuronify-LTP-Windows-x64.zip](https://github.com/mnahmani1/neuronify-ltp/releases/download/v1.0-ltp/Neuronify-LTP-Windows-x64.zip) | Windows 10 or later |
+| **Guide** (plain-language reference for the LTP features) | [Neuronify_LTP_Reference.docx](https://github.com/mnahmani1/neuronify-ltp/releases/download/v1.0-ltp/Neuronify_LTP_Reference.docx) | — |
+
+Both builds are self-contained: everything they need is inside the download.
+
+**Opening it the first time.** Neither build is signed with a paid developer certificate, so
+each operating system will warn you once:
+
+- **macOS** — open the .dmg, drag **Neuronify** to Applications, then **right-click the app and
+  choose Open** (double-clicking shows "cannot be opened" the first time). After that it opens
+  normally.
+- **Windows** — unzip the folder anywhere and run **Neuronify.exe**. If SmartScreen says
+  "Windows protected your PC", click **More info** → **Run anyway**.
+
+**Intel Mac or Linux?** There is no pre-built download; build from source — see below.
+
+## Building Neuronify-LTP from source
+
+This is for developers, and for platforms we do not ship a binary for. You will need Qt 5.15
+with Qt Charts. **[CHANGES-LTP.md](CHANGES-LTP.md)** has the fork's build steps and the full
+feature list; the upstream build instructions further down apply as well.
 
 ---
 
@@ -18,9 +54,19 @@ A scientific description of the underlying computational model and the app can b
 
 ## Download Neuronify
 
+> **Note:** this section is from the original project and links to the *original* Neuronify,
+> which does not include the LTP features. For Neuronify-LTP, use the
+> [release page](https://github.com/mnahmani1/neuronify-ltp/releases/tag/v1.0-ltp) linked at the
+> top of this file.
+
 Visit the [Neuronify website](http://ovilab.net/neuronify) to download the latest version for your operating system.
 
 ## Building Neuronify
+
+> **Note:** these are the original project's build instructions. They work for Neuronify-LTP too
+> — open `neuronify.pro` from *this* repository rather than cloning CINPLA/neuronify. You only
+> need them if you want to modify the app or build it for a platform without a pre-built
+> download.
 
 ### Prerequisites
 

@@ -108,7 +108,47 @@ instead of twice over it, so weight grades the firing rate. Same circuits, 50 Hz
 Saved simulations keep whatever current they were stored with, so the bundled examples are
 unchanged; the per-synapse **Current (nA)** slider restores 3.0 nA for a single synapse.
 
+## New feature: multiple selection and a working clipboard
+
+**Select several items at once.** Hold **Shift**, **Ctrl** or **Cmd** and drag on empty
+canvas to rubber-band a group of neurons, generators, meters and annotations; hold the same
+modifier and click to add or remove one item at a time. **Cmd/Ctrl+A** selects everything.
+A plain left-drag still pans the scene, so nothing about the old navigation changes. Dragging
+any member of a selection moves the whole group, and Delete removes all of it.
+
+**Cut, Copy and Paste now do something.** The toolbar buttons called `neuronify.cut()`,
+`copy()` and `paste()`, none of which existed, so they threw and did nothing. The clipboard
+holds the selected nodes plus every synapse whose two endpoints are both selected, in the same
+format as a saved file, so a pasted copy keeps each item's full configuration — including its
+LTP settings. Repeated pastes cascade instead of stacking on one spot. **Cmd/Ctrl+X / C / V**
+work as well; they are bound on the workspace rather than window-wide, so Cmd+C in a text
+field still copies text.
+
 ## Bug fixes included in this build
+
+- **Opening a neuron's properties no longer changes the neuron.** The Threshold / Reset /
+  Resting sliders were bound to the engine in both directions, and their range is recomputed
+  from the preview chart's geometry whenever the panel is laid out. A value the slider changed
+  by itself (clamped into a freshly computed range) was written straight back into the model,
+  so merely opening or resizing the properties panel silently rewrote the neuron's reset
+  potential. The visible symptom was the neuron icon turning grey — that is the "inhibited"
+  indicator, switched on because the reset potential had moved above the membrane potential;
+  with the scene paused the voltage never moves again, so the grey stayed. These sliders now
+  write to the model only when the user actually moves them, and the handle is re-synced from
+  the model after a drag so it cannot sit somewhere the model never accepted.
+- **Zooming works again, on every pointing device.** Scrolling now zooms (it used to pan on any
+  device that reports a pixel delta — every trackpad and the Magic Mouse — which duplicated the
+  left-drag pan and left those devices no way to zoom at all). A **right-button drag** also zooms:
+  push the mouse forward to zoom in, pull it back to zoom out, anchored on the point the drag
+  started from. Left-drag still pans, and pinch still works.
+- **Undo and redo work.** Three separate faults: `serializeState()` returns an object but
+  `undo()`/`redo()` ran `JSON.parse()` on it, so every undo threw a `SyntaxError` and did nothing;
+  loading a simulation left the undo stack empty instead of seeding it with the state as loaded, so
+  the first edit could never be undone; and new nodes and edges were snapshotted *before* they were
+  created rather than after, which put the history one step out of line. Creating a connection that
+  failed also leaked the recording guard and silently disabled undo for the rest of the session.
+- The app icon carries a bold white **LTP** so it is distinguishable from stock Neuronify.
+
 
 - Every stacked trace in a multi-neuron voltmeter draws its own x and y axis with labels.
   Previously only the most recently connected neuron's subplot was labelled and the rest
