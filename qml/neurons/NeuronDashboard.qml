@@ -236,22 +236,27 @@ Rectangle {
 
                     text: "Threshold"
                     next: resetSlider.field
-                    onValueChanged: {
-                        if(value < resetSlider.value + 0.05) {
-                            value = resetSlider.value + 0.05
-                        }
+                    // Write back on user input only. These sliders used to be
+                    // bound to the engine in both directions, so a value the
+                    // slider changed by itself (range recomputed on layout,
+                    // then clamped) was written into the neuron -- see the
+                    // userChanged docs in ChartSlider.qml.
+                    onUserChanged: {
+                        neuronEngine.threshold =
+                            Math.max(newValue, resetSlider.value + 0.05) / voltageFactor
                     }
-                    Binding {
+                    // The slider follows the engine by explicit assignment
+                    // rather than a two-way Binding pair, so a value the
+                    // slider produced on its own never reaches the engine and
+                    // a value the engine clamped always reaches the handle.
+                    function sync() {
+                        if(ready) value = neuronEngine.threshold * voltageFactor
+                    }
+                    onReadyChanged: sync()
+                    onSyncRequested: sync()
+                    Connections {
                         target: neuronEngine
-                        property: "threshold"
-                        value: thresholdSlider.value / voltageFactor
-                        when: thresholdSlider.ready
-                    }
-                    Binding {
-                        target: thresholdSlider
-                        property: "value"
-                        value: neuronEngine.threshold * voltageFactor
-                        when: thresholdSlider.ready
+                        function onThresholdChanged() { thresholdSlider.sync() }
                     }
                 }
 
@@ -264,23 +269,18 @@ Rectangle {
 
                     text: "Reset"
                     next: restingSlider.field
-                    onValueChanged: {
-                        if(value > thresholdSlider.value - 0.05) {
-                            value = thresholdSlider.value - 0.05
-                        }
+                    onUserChanged: {
+                        neuronEngine.initialPotential =
+                            Math.min(newValue, thresholdSlider.value - 0.05) / voltageFactor
                     }
-//                    value: neuronEngine.initialPotential
-                    Binding {
+                    function sync() {
+                        if(ready) value = neuronEngine.initialPotential * voltageFactor
+                    }
+                    onReadyChanged: sync()
+                    onSyncRequested: sync()
+                    Connections {
                         target: neuronEngine
-                        property: "initialPotential"
-                        value: resetSlider.value / voltageFactor
-                        when: resetSlider.ready
-                    }
-                    Binding {
-                        target: resetSlider
-                        property: "value"
-                        value: neuronEngine.initialPotential * voltageFactor
-                        when: resetSlider.ready
+                        function onInitialPotentialChanged() { resetSlider.sync() }
                     }
                 }
 
@@ -347,17 +347,17 @@ Rectangle {
 
                     text: "Resting"
                     next: thresholdSlider.field
-                    Binding {
-                        target: neuronEngine
-                        property: "restingPotential"
-                        value: restingSlider.value / voltageFactor
-                        when: restingSlider.ready
+                    onUserChanged: {
+                        neuronEngine.restingPotential = newValue / voltageFactor
                     }
-                    Binding {
-                        target: restingSlider
-                        property: "value"
-                        value: neuronEngine.restingPotential * voltageFactor
-                        when: restingSlider.ready
+                    function sync() {
+                        if(ready) value = neuronEngine.restingPotential * voltageFactor
+                    }
+                    onReadyChanged: sync()
+                    onSyncRequested: sync()
+                    Connections {
+                        target: neuronEngine
+                        function onRestingPotentialChanged() { restingSlider.sync() }
                     }
                 }
             }

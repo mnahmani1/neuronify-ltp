@@ -1,6 +1,6 @@
 import QtQuick 2.7
 import QtCharts 2.1
-import QtQuick.Controls 2.1
+import QtQuick.Controls 2.5
 import QtQuick.Controls.Material 2.1
 import QtQuick.Layouts 1.1
 
@@ -18,6 +18,30 @@ Item {
     property alias field: thresholdField
     property bool ready: false
 
+    /*!
+      Emitted only when the *user* moves this control — dragging the handle,
+      nudging it with the keyboard, or typing in the field.
+
+      `value` also moves on its own: refresh() recomputes the slider's range
+      from the chart's geometry, and QQuickSlider clamps its value into the new
+      range. Those self-inflicted changes used to run straight back into the
+      neuron through the two-way bindings in NeuronDashboard, so merely opening
+      or re-laying-out the properties panel silently rewrote the neuron's reset
+      potential. The visible symptom was the neuron icon turning grey — that is
+      the "inhibited" overlay, switched on because the reset potential had been
+      moved above the membrane voltage (with the scene paused the voltage never
+      moves again, so the grey stayed). Write-backs are now driven by this
+      signal instead of by value changes.
+    */
+    signal userChanged(real newValue)
+
+    /*!
+      Emitted when the slider's range has been recomputed and its value may
+      therefore have been clamped to something the model never asked for. The
+      owner responds by pushing the model's value back in.
+    */
+    signal syncRequested()
+
     function refresh() {
         dummySlider.value = 1
         var maxPoint = dummySlider.handle.mapToItem(chart, 0, dummySlider.handle.height / 2)
@@ -29,6 +53,9 @@ Item {
             slider.to = max
             slider.from = min
             ready = true
+            // Changing the range can clamp the value; ask the owner to put the
+            // model's value back rather than letting the clamp stand.
+            syncRequested()
         }
     }
 
@@ -73,6 +100,13 @@ Item {
         onValueChanged: {
             rect.update()
         }
+        // moved() fires only for user input (drag or keyboard), never when the
+        // value changes because the range was recomputed.
+        onMoved: root.userChanged(slider.value)
+        // Settle the handle when the drag ends. The owner may have clamped
+        // what it accepted (a reset potential cannot go above the threshold),
+        // in which case the handle has run past where the model actually is.
+        onPressedChanged: if(!pressed) root.syncRequested()
         value: 0.5
         hoverEnabled: true
 
@@ -121,6 +155,7 @@ Item {
 
         onEditingFinished: {
             slider.value = Number(text)
+            root.userChanged(slider.value)
         }
         Binding {
             target: thresholdField
